@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/rh-utcp/rh-utcp/internal/config"
+	"github.com/rh-utcp/rh-utcp/internal/providers/gitlab"
 	"github.com/rh-utcp/rh-utcp/internal/providers/jira"
 	"github.com/rh-utcp/rh-utcp/internal/providers/wiki"
 	"github.com/rh-utcp/rh-utcp/pkg/utcp"
@@ -88,12 +89,15 @@ func handleUTCPDiscovery(c *gin.Context) {
 				manual.AddTool(tool)
 			}
 
-		// TODO: Add other provider types as they are implemented
-		// case "gitlab":
-		//     gitlabProvider := gitlab.NewProvider(providerConfig.BaseURL, providerConfig.Auth.Token)
-		//     for _, tool := range gitlabProvider.GetTools() {
-		//         manual.AddTool(tool)
-		//     }
+		case "gitlab":
+			gitlabProvider := gitlab.NewProvider(
+				providerConfig.BaseURL,
+				providerConfig.Auth.Token,
+			)
+
+			for _, tool := range gitlabProvider.GetTools() {
+				manual.AddTool(tool)
+			}
 
 		default:
 			log.Printf("Unknown provider type: %s", providerConfig.Type)

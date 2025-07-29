@@ -41,7 +41,7 @@ type Property struct {
 // NewManual creates a new UTCP manual
 func NewManual() *Manual {
 	return &Manual{
-		Version: "1.0",
+		Version: "0.1.0",
 		Tools:   []Tool{},
 	}
 }
@@ -52,51 +52,58 @@ func (m *Manual) AddTool(tool Tool) {
 }
 
 // ToJSON converts the manual to JSON
-func (m *Manual) ToJSON() ([]byte, error) {
-	return json.MarshalIndent(m, "", "  ")
+func (m *Manual) ToJSON() (string, error) {
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // HTTPProvider creates an HTTP provider configuration
 func HTTPProvider(name, url, method string, auth map[string]interface{}) map[string]interface{} {
-	provider := map[string]interface{}{
-		"name":          name,
+	return map[string]interface{}{
 		"provider_type": "http",
+		"provider_id":   name,
 		"url":           url,
 		"http_method":   method,
-		"content_type":  "application/json",
+		"auth":          auth,
 	}
-
-	if auth != nil {
-		provider["auth"] = auth
-	}
-
-	return provider
 }
 
 // APIKeyAuth creates API key authentication configuration
-func APIKeyAuth(keyVar, headerName string) map[string]interface{} {
+func APIKeyAuth(envVar, varName string) map[string]interface{} {
 	return map[string]interface{}{
 		"auth_type": "api_key",
-		"api_key":   "$" + keyVar,
-		"var_name":  headerName,
+		"api_key":   "$" + envVar,
+		"var_name":  varName,
 	}
 }
 
 // BasicAuth creates basic authentication configuration
-func BasicAuth(usernameVar, passwordVar string) map[string]interface{} {
+func BasicAuth(usernameEnv, passwordEnv string) map[string]interface{} {
 	return map[string]interface{}{
 		"auth_type": "basic",
-		"username":  "$" + usernameVar,
-		"password":  "$" + passwordVar,
+		"username":  "$" + usernameEnv,
+		"password":  "$" + passwordEnv,
 	}
 }
 
 // OAuth2Auth creates OAuth2 authentication configuration
-func OAuth2Auth(clientIDVar, clientSecretVar, tokenURL string) map[string]interface{} {
+func OAuth2Auth(clientIDEnv, clientSecretEnv, tokenURLEnv string) map[string]interface{} {
 	return map[string]interface{}{
 		"auth_type":     "oauth2",
-		"client_id":     "$" + clientIDVar,
-		"client_secret": "$" + clientSecretVar,
-		"token_url":     tokenURL,
+		"client_id":     "$" + clientIDEnv,
+		"client_secret": "$" + clientSecretEnv,
+		"token_url":     "$" + tokenURLEnv,
+	}
+}
+
+// PersonalTokenAuth creates personal token authentication configuration
+func PersonalTokenAuth(tokenEnv, headerName string) map[string]interface{} {
+	return map[string]interface{}{
+		"auth_type":   "personal_token",
+		"token":       "$" + tokenEnv,
+		"header_name": headerName,
 	}
 }

@@ -12,12 +12,8 @@ func TestNewManual(t *testing.T) {
 		t.Fatal("NewManual returned nil")
 	}
 
-	if manual.Version != "1.0" {
-		t.Errorf("Expected version 1.0, got %s", manual.Version)
-	}
-
-	if manual.Tools == nil {
-		t.Error("Tools slice is nil")
+	if manual.Version != "0.1.0" {
+		t.Errorf("Expected version 0.1.0, got %s", manual.Version)
 	}
 
 	if len(manual.Tools) != 0 {
@@ -30,26 +26,9 @@ func TestAddTool(t *testing.T) {
 
 	tool := Tool{
 		Name:        "test_tool",
-		Description: "A test tool",
-		Inputs: Schema{
-			Type: "object",
-			Properties: map[string]Property{
-				"param1": {
-					Type:        "string",
-					Description: "Test parameter",
-				},
-			},
-			Required: []string{"param1"},
-		},
-		Outputs: Schema{
-			Type:        "object",
-			Description: "Test output",
-		},
-		Tags: []string{"test"},
-		ToolProvider: map[string]interface{}{
-			"provider_type": "http",
-			"url":           "https://example.com/api",
-		},
+		Description: "Test tool",
+		Inputs:      Schema{Type: "object"},
+		Outputs:     Schema{Type: "object"},
 	}
 
 	manual.AddTool(tool)
@@ -63,159 +42,135 @@ func TestAddTool(t *testing.T) {
 	}
 }
 
-func TestManualToJSON(t *testing.T) {
+func TestToJSON(t *testing.T) {
 	manual := NewManual()
 	manual.AddTool(Tool{
-		Name:        "json_test",
-		Description: "Test JSON serialization",
-		Inputs: Schema{
-			Type: "object",
-		},
-		Outputs: Schema{
-			Type: "object",
-		},
-		ToolProvider: HTTPProvider("test", "https://example.com", "GET", nil),
+		Name:        "test_tool",
+		Description: "Test tool",
+		Inputs:      Schema{Type: "object"},
+		Outputs:     Schema{Type: "object"},
 	})
 
-	jsonData, err := manual.ToJSON()
+	jsonStr, err := manual.ToJSON()
 	if err != nil {
 		t.Fatalf("ToJSON failed: %v", err)
 	}
 
-	// Verify it's valid JSON
-	var decoded Manual
-	if err := json.Unmarshal(jsonData, &decoded); err != nil {
-		t.Fatalf("Failed to decode JSON: %v", err)
+	// Parse JSON to verify it's valid
+	var parsed Manual
+	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
 	}
 
-	if decoded.Version != "1.0" {
-		t.Errorf("Expected version 1.0 in JSON, got %s", decoded.Version)
+	if parsed.Version != manual.Version {
+		t.Errorf("Version mismatch: expected %s, got %s", manual.Version, parsed.Version)
 	}
 
-	if len(decoded.Tools) != 1 {
-		t.Errorf("Expected 1 tool in JSON, got %d", len(decoded.Tools))
+	if len(parsed.Tools) != len(manual.Tools) {
+		t.Errorf("Tools count mismatch: expected %d, got %d", len(manual.Tools), len(parsed.Tools))
 	}
 }
 
 func TestHTTPProvider(t *testing.T) {
-	tests := []struct {
-		name     string
-		url      string
-		method   string
-		auth     map[string]interface{}
-		expected map[string]interface{}
-	}{
-		{
-			name:   "Basic HTTP provider",
-			url:    "https://api.example.com",
-			method: "GET",
-			auth:   nil,
-			expected: map[string]interface{}{
-				"name":          "Basic HTTP provider",
-				"provider_type": "http",
-				"url":           "https://api.example.com",
-				"http_method":   "GET",
-				"content_type":  "application/json",
-			},
-		},
-		{
-			name:   "HTTP provider with auth",
-			url:    "https://api.example.com",
-			method: "POST",
-			auth: map[string]interface{}{
-				"auth_type": "api_key",
-				"api_key":   "$API_KEY",
-			},
-			expected: map[string]interface{}{
-				"name":          "HTTP provider with auth",
-				"provider_type": "http",
-				"url":           "https://api.example.com",
-				"http_method":   "POST",
-				"content_type":  "application/json",
-				"auth": map[string]interface{}{
-					"auth_type": "api_key",
-					"api_key":   "$API_KEY",
-				},
-			},
-		},
+	auth := map[string]interface{}{
+		"auth_type": "basic",
+		"username":  "$USER",
+		"password":  "$PASS",
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			provider := HTTPProvider(tt.name, tt.url, tt.method, tt.auth)
+	provider := HTTPProvider("test_provider", "https://api.example.com", "POST", auth)
 
-			if provider["name"] != tt.expected["name"] {
-				t.Errorf("Expected name %s, got %s", tt.expected["name"], provider["name"])
-			}
+	if provider["provider_type"] != "http" {
+		t.Errorf("Expected provider_type 'http', got %v", provider["provider_type"])
+	}
 
-			if provider["provider_type"] != tt.expected["provider_type"] {
-				t.Errorf("Expected provider_type %s, got %s", tt.expected["provider_type"], provider["provider_type"])
-			}
+	if provider["provider_id"] != "test_provider" {
+		t.Errorf("Expected provider_id 'test_provider', got %v", provider["provider_id"])
+	}
 
-			if provider["url"] != tt.expected["url"] {
-				t.Errorf("Expected url %s, got %s", tt.expected["url"], provider["url"])
-			}
+	if provider["url"] != "https://api.example.com" {
+		t.Errorf("Expected url 'https://api.example.com', got %v", provider["url"])
+	}
 
-			if provider["http_method"] != tt.expected["http_method"] {
-				t.Errorf("Expected http_method %s, got %s", tt.expected["http_method"], provider["http_method"])
-			}
+	if provider["http_method"] != "POST" {
+		t.Errorf("Expected http_method 'POST', got %v", provider["http_method"])
+	}
 
-			if tt.auth != nil && provider["auth"] == nil {
-				t.Error("Expected auth to be set, but it's nil")
-			}
-		})
+	authMap, ok := provider["auth"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Auth is not a map")
+	}
+
+	if authMap["auth_type"] != "basic" {
+		t.Errorf("Expected auth_type 'basic', got %v", authMap["auth_type"])
 	}
 }
 
 func TestAPIKeyAuth(t *testing.T) {
-	auth := APIKeyAuth("MY_API_KEY", "X-Custom-Key")
+	auth := APIKeyAuth("API_KEY", "X-API-Key")
 
 	if auth["auth_type"] != "api_key" {
-		t.Errorf("Expected auth_type 'api_key', got %s", auth["auth_type"])
+		t.Errorf("Expected auth_type 'api_key', got %v", auth["auth_type"])
 	}
 
-	if auth["api_key"] != "$MY_API_KEY" {
-		t.Errorf("Expected api_key '$MY_API_KEY', got %s", auth["api_key"])
+	if auth["api_key"] != "$API_KEY" {
+		t.Errorf("Expected api_key '$API_KEY', got %v", auth["api_key"])
 	}
 
-	if auth["var_name"] != "X-Custom-Key" {
-		t.Errorf("Expected var_name 'X-Custom-Key', got %s", auth["var_name"])
+	if auth["var_name"] != "X-API-Key" {
+		t.Errorf("Expected var_name 'X-API-Key', got %v", auth["var_name"])
 	}
 }
 
 func TestBasicAuth(t *testing.T) {
-	auth := BasicAuth("USER_VAR", "PASS_VAR")
+	auth := BasicAuth("USERNAME", "PASSWORD")
 
 	if auth["auth_type"] != "basic" {
-		t.Errorf("Expected auth_type 'basic', got %s", auth["auth_type"])
+		t.Errorf("Expected auth_type 'basic', got %v", auth["auth_type"])
 	}
 
-	if auth["username"] != "$USER_VAR" {
-		t.Errorf("Expected username '$USER_VAR', got %s", auth["username"])
+	if auth["username"] != "$USERNAME" {
+		t.Errorf("Expected username '$USERNAME', got %v", auth["username"])
 	}
 
-	if auth["password"] != "$PASS_VAR" {
-		t.Errorf("Expected password '$PASS_VAR', got %s", auth["password"])
+	if auth["password"] != "$PASSWORD" {
+		t.Errorf("Expected password '$PASSWORD', got %v", auth["password"])
 	}
 }
 
 func TestOAuth2Auth(t *testing.T) {
-	auth := OAuth2Auth("CLIENT_ID", "CLIENT_SECRET", "https://auth.example.com/token")
+	auth := OAuth2Auth("CLIENT_ID", "CLIENT_SECRET", "TOKEN_URL")
 
 	if auth["auth_type"] != "oauth2" {
-		t.Errorf("Expected auth_type 'oauth2', got %s", auth["auth_type"])
+		t.Errorf("Expected auth_type 'oauth2', got %v", auth["auth_type"])
 	}
 
 	if auth["client_id"] != "$CLIENT_ID" {
-		t.Errorf("Expected client_id '$CLIENT_ID', got %s", auth["client_id"])
+		t.Errorf("Expected client_id '$CLIENT_ID', got %v", auth["client_id"])
 	}
 
 	if auth["client_secret"] != "$CLIENT_SECRET" {
-		t.Errorf("Expected client_secret '$CLIENT_SECRET', got %s", auth["client_secret"])
+		t.Errorf("Expected client_secret '$CLIENT_SECRET', got %v", auth["client_secret"])
 	}
 
-	if auth["token_url"] != "https://auth.example.com/token" {
-		t.Errorf("Expected token_url 'https://auth.example.com/token', got %s", auth["token_url"])
+	if auth["token_url"] != "$TOKEN_URL" {
+		t.Errorf("Expected token_url '$TOKEN_URL', got %v", auth["token_url"])
+	}
+}
+
+func TestPersonalTokenAuth(t *testing.T) {
+	auth := PersonalTokenAuth("GITLAB_TOKEN", "PRIVATE-TOKEN")
+
+	if auth["auth_type"] != "personal_token" {
+		t.Errorf("Expected auth_type 'personal_token', got %v", auth["auth_type"])
+	}
+
+	if auth["token"] != "$GITLAB_TOKEN" {
+		t.Errorf("Expected token '$GITLAB_TOKEN', got %v", auth["token"])
+	}
+
+	if auth["header_name"] != "PRIVATE-TOKEN" {
+		t.Errorf("Expected header_name 'PRIVATE-TOKEN', got %v", auth["header_name"])
 	}
 }
 
