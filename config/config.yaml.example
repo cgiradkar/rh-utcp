@@ -1,0 +1,45 @@
+# RH-UTCP Configuration File Example
+# This file demonstrates how to configure providers using a YAML file
+# instead of environment variables
+
+server:
+  port: 8080
+  environment: production
+  loglevel: info
+
+providers:
+  - name: jira
+    type: jira
+    enabled: true
+    base_url: ${JIRA_BASE_URL}
+    auth:
+      type: basic
+      username: ${JIRA_USERNAME}
+      password: ${JIRA_PASSWORD}
+
+  - name: wiki
+    type: confluence
+    enabled: true
+    base_url: ${WIKI_BASE_URL}
+    auth:
+      type: api_key
+      api_key: ${WIKI_API_KEY}
+
+  - name: gitlab
+    type: gitlab
+    enabled: true
+    base_url: ${GITLAB_BASE_URL}
+    auth:
+      type: personal_token
+      token: ${GITLAB_TOKEN}
+
+  # Example of OAuth2 provider
+  - name: github
+    type: github
+    enabled: false
+    base_url: https://api.github.com
+    auth:
+      type: oauth2
+      client_id: ${GITHUB_CLIENT_ID}
+      client_secret: ${GITHUB_CLIENT_SECRET}
+      token_url: https://github.com/login/oauth/access_token 
