@@ -8,6 +8,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rh-utcp/rh-utcp/internal/config"
 	"github.com/rh-utcp/rh-utcp/internal/providers/jira"
+	"github.com/rh-utcp/rh-utcp/internal/providers/wiki"
 	"github.com/rh-utcp/rh-utcp/pkg/utcp"
 )
 
@@ -77,12 +78,17 @@ func handleUTCPDiscovery(c *gin.Context) {
 				manual.AddTool(tool)
 			}
 
+		case "confluence", "wiki":
+			wikiProvider := wiki.NewProvider(
+				providerConfig.BaseURL,
+				providerConfig.Auth.APIKey,
+			)
+
+			for _, tool := range wikiProvider.GetTools() {
+				manual.AddTool(tool)
+			}
+
 		// TODO: Add other provider types as they are implemented
-		// case "confluence", "wiki":
-		//     wikiProvider := wiki.NewProvider(providerConfig.BaseURL, providerConfig.Auth.APIKey)
-		//     for _, tool := range wikiProvider.GetTools() {
-		//         manual.AddTool(tool)
-		//     }
 		// case "gitlab":
 		//     gitlabProvider := gitlab.NewProvider(providerConfig.BaseURL, providerConfig.Auth.Token)
 		//     for _, tool := range gitlabProvider.GetTools() {
