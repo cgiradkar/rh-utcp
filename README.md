@@ -98,7 +98,7 @@ make help     # See all commands
 
 ## Documentation
 
-- [Architecture](./ARCHITECTURE.md) - System design and implementation details
+- [Architecture](./docs/ARCHITECTURE.md) - System design and implementation details
 - [UTCP Specification](https://github.com/universal-tool-calling-protocol/utcp-specification) - Protocol documentation
 
 ## License

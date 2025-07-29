@@ -6,7 +6,7 @@ RH-UTCP implements the Universal Tool Calling Protocol (UTCP) to enable AI agent
 
 ## System Architecture
 
-![UTCP Architecture](./arch.svg)
+![UTCP Architecture](./architecture.svg)
 
 ### Key Components
 

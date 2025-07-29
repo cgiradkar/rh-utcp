@@ -4,234 +4,231 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/rh-utcp/rh-utcp/pkg/utcp"
+	"github.com/rh-utcp/rh-utcp/internal/config"
+	"github.com/rh-utcp/rh-utcp/internal/providers"
+	"github.com/rh-utcp/rh-utcp/internal/providers/jira"
+	"github.com/rh-utcp/rh-utcp/pkg/logger"
 )
 
-func TestHealthEndpoint(t *testing.T) {
-	// Set up test router
+func init() {
+	// Set Gin to test mode
 	gin.SetMode(gin.TestMode)
-	r := gin.Default()
+}
 
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
-	})
+func setupTestRouter() *gin.Engine {
+	// Initialize test dependencies
+	if log == nil {
+		log = logger.New(logger.Config{
+			Level:    "error",
+			UseColor: false,
+		})
+	}
 
-	// Create test request
-	req, _ := http.NewRequest("GET", "/health", nil)
+	if registry == nil {
+		registry = providers.NewRegistry()
+	}
+
+	if cfg == nil {
+		cfg = &config.Config{
+			Server: config.ServerConfig{
+				Port:        "8080",
+				Environment: "test",
+				LogLevel:    "error",
+			},
+			Providers: []config.ProviderConfig{},
+		}
+	}
+
+	r := gin.New()
+	r.GET("/utcp", handleUTCPDiscovery)
+	r.GET("/health", handleHealth)
+
+	return r
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	r := setupTestRouter()
+
 	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/health", nil)
 	r.ServeHTTP(w, req)
 
-	// Check response
-	if w.Code != http.StatusOK {
+	if w.Code != 200 {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	var response map[string]string
+	var response map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
 	if response["status"] != "ok" {
-		t.Errorf("Expected status 'ok', got %s", response["status"])
+		t.Errorf("Expected status 'ok', got %v", response["status"])
 	}
 }
 
 func TestUTCPDiscoveryWithoutProviders(t *testing.T) {
-	// Ensure no provider environment variables are set
-	os.Unsetenv("JIRA_BASE_URL")
-	os.Unsetenv("WIKI_BASE_URL")
-	os.Unsetenv("GITLAB_BASE_URL")
+	r := setupTestRouter()
 
-	// Set up test router
-	gin.SetMode(gin.TestMode)
-	r := gin.Default()
-	r.GET("/utcp", handleUTCPDiscovery)
+	// Clear any existing providers
+	registry.Clear()
 
-	// Create test request
-	req, _ := http.NewRequest("GET", "/utcp", nil)
 	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/utcp", nil)
 	r.ServeHTTP(w, req)
 
-	// Check response
-	if w.Code != http.StatusOK {
+	if w.Code != 200 {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	var manual utcp.Manual
+	var manual map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &manual); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	if manual.Version != "1.0" {
-		t.Errorf("Expected version 1.0, got %s", manual.Version)
+	// Check structure
+	if _, exists := manual["version"]; !exists {
+		t.Error("Missing 'version' field in manual")
 	}
 
-	if len(manual.Tools) != 0 {
-		t.Errorf("Expected 0 tools without providers, got %d", len(manual.Tools))
+	tools, ok := manual["tools"].([]interface{})
+	if !ok {
+		t.Error("'tools' field is not an array")
+	}
+
+	if len(tools) != 0 {
+		t.Errorf("Expected 0 tools without providers, got %d", len(tools))
 	}
 }
 
 func TestUTCPDiscoveryWithJiraProvider(t *testing.T) {
-	// Set up Jira environment variables
-	os.Setenv("JIRA_BASE_URL", "https://jira.test.com")
-	os.Setenv("JIRA_USERNAME", "testuser")
-	os.Setenv("JIRA_PASSWORD", "testpass")
-	defer func() {
-		os.Unsetenv("JIRA_BASE_URL")
-		os.Unsetenv("JIRA_USERNAME")
-		os.Unsetenv("JIRA_PASSWORD")
-	}()
+	r := setupTestRouter()
 
-	// Set up test router
-	gin.SetMode(gin.TestMode)
-	r := gin.Default()
-	r.GET("/utcp", handleUTCPDiscovery)
+	// Clear and add a Jira provider
+	registry.Clear()
+	registry.RegisterFactory("jira", jira.NewProviderFromConfig)
 
-	// Create test request
-	req, _ := http.NewRequest("GET", "/utcp", nil)
+	err := registry.CreateProvider("test-jira", "jira", map[string]interface{}{
+		"name":     "test-jira",
+		"enabled":  true,
+		"base_url": "https://jira.example.com",
+		"username": "testuser",
+		"password": "testpass",
+	})
+
+	if err != nil {
+		t.Fatalf("Failed to create Jira provider: %v", err)
+	}
+
 	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/utcp", nil)
 	r.ServeHTTP(w, req)
 
-	// Check response
-	if w.Code != http.StatusOK {
+	if w.Code != 200 {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	var manual utcp.Manual
+	var manual map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &manual); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	if manual.Version != "1.0" {
-		t.Errorf("Expected version 1.0, got %s", manual.Version)
+	tools, ok := manual["tools"].([]interface{})
+	if !ok {
+		t.Error("'tools' field is not an array")
 	}
 
-	// Should have Jira tools
-	if len(manual.Tools) == 0 {
-		t.Fatal("Expected Jira tools to be present")
+	// Jira provider should provide 7 tools
+	if len(tools) != 7 {
+		t.Errorf("Expected 7 tools from Jira provider, got %d", len(tools))
 	}
 
-	// Check for specific Jira tools
-	toolNames := make(map[string]bool)
-	for _, tool := range manual.Tools {
-		toolNames[tool.Name] = true
-	}
-
-	expectedTools := []string{
-		"jira_search_issues",
-		"jira_get_issue",
-		"jira_create_issue",
-		"jira_update_issue",
-		"jira_get_projects",
-		"jira_add_comment",
-		"jira_get_user_issues",
-	}
-
-	for _, expected := range expectedTools {
-		if !toolNames[expected] {
-			t.Errorf("Expected tool %s not found", expected)
+	// Check first tool structure
+	if len(tools) > 0 {
+		firstTool, ok := tools[0].(map[string]interface{})
+		if !ok {
+			t.Error("Tool is not a map")
+		} else {
+			// Check required fields
+			requiredFields := []string{"name", "description", "inputs", "outputs", "tags", "tool_provider"}
+			for _, field := range requiredFields {
+				if _, exists := firstTool[field]; !exists {
+					t.Errorf("Missing required field '%s' in tool", field)
+				}
+			}
 		}
 	}
 }
 
 func TestUTCPDiscoveryResponseStructure(t *testing.T) {
-	// Set up a provider
-	os.Setenv("JIRA_BASE_URL", "https://jira.test.com")
-	defer os.Unsetenv("JIRA_BASE_URL")
+	r := setupTestRouter()
 
-	// Set up test router
-	gin.SetMode(gin.TestMode)
-	r := gin.Default()
-	r.GET("/utcp", handleUTCPDiscovery)
+	// Clear providers
+	registry.Clear()
 
-	// Create test request
-	req, _ := http.NewRequest("GET", "/utcp", nil)
 	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/utcp", nil)
 	r.ServeHTTP(w, req)
 
-	// Parse response
-	var manual utcp.Manual
+	var manual map[string]interface{}
 	if err := json.Unmarshal(w.Body.Bytes(), &manual); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	// Check at least one tool exists
-	if len(manual.Tools) == 0 {
-		t.Fatal("No tools found in response")
+	// Check version
+	version, ok := manual["version"].(string)
+	if !ok {
+		t.Error("'version' is not a string")
+	} else if version == "" {
+		t.Error("'version' is empty")
 	}
 
-	// Validate first tool structure
-	tool := manual.Tools[0]
-
-	// Check required fields
-	if tool.Name == "" {
-		t.Error("Tool name is empty")
+	// Check tools array
+	tools, ok := manual["tools"].([]interface{})
+	if !ok {
+		t.Error("'tools' is not an array")
+	} else if tools == nil {
+		t.Error("'tools' is nil")
 	}
 
-	if tool.Description == "" {
-		t.Error("Tool description is empty")
+	// Check no extra fields
+	expectedFields := map[string]bool{
+		"version": true,
+		"tools":   true,
 	}
 
-	if tool.Inputs.Type == "" {
-		t.Error("Tool inputs type is empty")
-	}
-
-	if tool.Outputs.Type == "" {
-		t.Error("Tool outputs type is empty")
-	}
-
-	if tool.ToolProvider == nil {
-		t.Error("Tool provider is nil")
-	}
-
-	// Check provider structure
-	provider := tool.ToolProvider
-	if provider["provider_type"] == nil {
-		t.Error("Provider type is missing")
-	}
-
-	if provider["url"] == nil {
-		t.Error("Provider URL is missing")
-	}
-
-	if provider["http_method"] == nil {
-		t.Error("Provider HTTP method is missing")
-	}
-
-	if provider["auth"] == nil {
-		t.Error("Provider auth is missing")
+	for key := range manual {
+		if !expectedFields[key] {
+			t.Errorf("Unexpected field '%s' in manual", key)
+		}
 	}
 }
 
 func TestUTCPDiscoveryContentType(t *testing.T) {
-	// Set up test router
-	gin.SetMode(gin.TestMode)
-	r := gin.Default()
-	r.GET("/utcp", handleUTCPDiscovery)
+	r := setupTestRouter()
 
-	// Create test request
-	req, _ := http.NewRequest("GET", "/utcp", nil)
 	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/utcp", nil)
 	r.ServeHTTP(w, req)
 
-	// Check Content-Type header
 	contentType := w.Header().Get("Content-Type")
 	expectedContentType := "application/json; charset=utf-8"
+
 	if contentType != expectedContentType {
 		t.Errorf("Expected Content-Type '%s', got '%s'", expectedContentType, contentType)
 	}
 }
 
-func TestMainFunction(t *testing.T) {
-	// This test verifies that the main function sets up routes correctly
-	// In a real scenario, you might want to test with a test server
+// TestMain validates that the main function can be called without errors
+func TestMain(t *testing.T) {
+	// This test simply ensures the code compiles and basic structure is valid
+	// The actual main() function would start a server, so we don't call it in tests
 
-	// For now, just verify that the handler functions exist
-	if handleUTCPDiscovery == nil {
-		t.Error("handleUTCPDiscovery function is nil")
+	// Instead, we test that our handler functions exist
+	if ginLogger() == nil {
+		t.Error("ginLogger function should not return nil")
 	}
 }

@@ -43,12 +43,12 @@ docker: docker-build
 
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t rh-utcp:latest .
+	podman build -t rh-utcp:latest .
 
 # Run Docker container
 docker-run:
 	@echo "Running Docker container..."
-	docker run -p 8080:8080 --env-file .env rh-utcp:latest
+	podman run -p 8080:8080 --env-file .env rh-utcp:latest
 
 # Development server with hot reload (requires air)
 dev:
