@@ -3,21 +3,48 @@ package wiki
 import (
 	"fmt"
 
+	"github.com/rh-utcp/rh-utcp/internal/providers"
 	"github.com/rh-utcp/rh-utcp/pkg/utcp"
 )
 
 // Provider represents a Wiki/Confluence provider
 type Provider struct {
-	BaseURL string
-	APIKey  string
+	providers.BaseProvider
+	APIKey string
 }
 
 // NewProvider creates a new Wiki provider
 func NewProvider(baseURL, apiKey string) *Provider {
 	return &Provider{
-		BaseURL: baseURL,
-		APIKey:  apiKey,
+		BaseProvider: providers.BaseProvider{
+			Type:    "wiki",
+			Enabled: true,
+			BaseURL: baseURL,
+		},
+		APIKey: apiKey,
 	}
+}
+
+// NewProviderFromConfig creates a new Wiki provider from configuration
+func NewProviderFromConfig(config map[string]interface{}) (providers.Provider, error) {
+	name, _ := config["name"].(string)
+	baseURL, _ := config["base_url"].(string)
+	apiKey, _ := config["api_key"].(string)
+	enabled, _ := config["enabled"].(bool)
+
+	if baseURL == "" {
+		return nil, fmt.Errorf("base_url is required")
+	}
+
+	if apiKey == "" {
+		return nil, fmt.Errorf("api_key is required for Wiki provider")
+	}
+
+	provider := NewProvider(baseURL, apiKey)
+	provider.Name = name
+	provider.Enabled = enabled
+
+	return provider, nil
 }
 
 // GetTools returns all available Wiki tools

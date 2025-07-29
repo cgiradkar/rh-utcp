@@ -3,21 +3,48 @@ package gitlab
 import (
 	"fmt"
 
+	"github.com/rh-utcp/rh-utcp/internal/providers"
 	"github.com/rh-utcp/rh-utcp/pkg/utcp"
 )
 
 // Provider represents a GitLab provider
 type Provider struct {
-	BaseURL string
-	Token   string
+	providers.BaseProvider
+	Token string
 }
 
 // NewProvider creates a new GitLab provider
 func NewProvider(baseURL, token string) *Provider {
 	return &Provider{
-		BaseURL: baseURL,
-		Token:   token,
+		BaseProvider: providers.BaseProvider{
+			Type:    "gitlab",
+			Enabled: true,
+			BaseURL: baseURL,
+		},
+		Token: token,
 	}
+}
+
+// NewProviderFromConfig creates a new GitLab provider from configuration
+func NewProviderFromConfig(config map[string]interface{}) (providers.Provider, error) {
+	name, _ := config["name"].(string)
+	baseURL, _ := config["base_url"].(string)
+	token, _ := config["token"].(string)
+	enabled, _ := config["enabled"].(bool)
+
+	if baseURL == "" {
+		return nil, fmt.Errorf("base_url is required")
+	}
+
+	if token == "" {
+		return nil, fmt.Errorf("token is required for GitLab provider")
+	}
+
+	provider := NewProvider(baseURL, token)
+	provider.Name = name
+	provider.Enabled = enabled
+
+	return provider, nil
 }
 
 // GetTools returns all available GitLab tools

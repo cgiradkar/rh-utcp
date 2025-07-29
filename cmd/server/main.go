@@ -7,13 +7,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/rh-utcp/rh-utcp/internal/config"
+	"github.com/rh-utcp/rh-utcp/internal/providers"
 	"github.com/rh-utcp/rh-utcp/internal/providers/gitlab"
 	"github.com/rh-utcp/rh-utcp/internal/providers/jira"
 	"github.com/rh-utcp/rh-utcp/internal/providers/wiki"
 	"github.com/rh-utcp/rh-utcp/pkg/utcp"
 )
 
-var cfg *config.Config
+var (
+	cfg      *config.Config
+	registry *providers.Registry
+)
 
 func main() {
 	// Load environment variables
@@ -33,6 +37,19 @@ func main() {
 		log.Fatal("Invalid configuration:", err)
 	}
 
+	// Initialize provider registry
+	registry = providers.NewRegistry()
+
+	// Register provider factories
+	if err := registerProviderFactories(); err != nil {
+		log.Fatal("Failed to register provider factories:", err)
+	}
+
+	// Create providers from configuration
+	if err := createProviders(); err != nil {
+		log.Fatal("Failed to create providers:", err)
+	}
+
 	// Initialize Gin router
 	r := gin.Default()
 
@@ -41,7 +58,10 @@ func main() {
 
 	// Health check endpoint
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+		c.JSON(200, gin.H{
+			"status":    "ok",
+			"providers": len(registry.GetEnabledProviders()),
+		})
 	})
 
 	// Start server
@@ -50,61 +70,82 @@ func main() {
 	log.Printf("Environment: %s", cfg.Server.Environment)
 	log.Printf("Log level: %s", cfg.Server.LogLevel)
 	log.Printf("Configured providers: %d", len(cfg.Providers))
+	log.Printf("Enabled providers: %d", len(registry.GetEnabledProviders()))
 
 	if err := r.Run(":" + cfg.Server.Port); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
 }
 
-func handleUTCPDiscovery(c *gin.Context) {
-	manual := utcp.NewManual()
+func registerProviderFactories() error {
+	// Register Jira provider factory
+	if err := registry.RegisterFactory("jira", jira.NewProviderFromConfig); err != nil {
+		return err
+	}
 
-	// Initialize providers based on configuration
+	// Register Wiki/Confluence provider factory
+	if err := registry.RegisterFactory("wiki", wiki.NewProviderFromConfig); err != nil {
+		return err
+	}
+	if err := registry.RegisterFactory("confluence", wiki.NewProviderFromConfig); err != nil {
+		return err
+	}
+
+	// Register GitLab provider factory
+	if err := registry.RegisterFactory("gitlab", gitlab.NewProviderFromConfig); err != nil {
+		return err
+	}
+
+	log.Println("Registered provider factories: jira, wiki, confluence, gitlab")
+	return nil
+}
+
+func createProviders() error {
 	for _, providerConfig := range cfg.Providers {
-		if !providerConfig.Enabled {
-			continue
+		// Convert config to map for factory
+		configMap := map[string]interface{}{
+			"name":     providerConfig.Name,
+			"enabled":  providerConfig.Enabled,
+			"base_url": providerConfig.BaseURL,
 		}
 
-		log.Printf("Loading provider: %s (%s)", providerConfig.Name, providerConfig.Type)
+		// Add auth configuration based on type
+		switch providerConfig.Auth.Type {
+		case "basic":
+			configMap["username"] = providerConfig.Auth.Username
+			configMap["password"] = providerConfig.Auth.Password
+		case "api_key":
+			configMap["api_key"] = providerConfig.Auth.APIKey
+		case "personal_token":
+			configMap["token"] = providerConfig.Auth.Token
+		case "oauth2":
+			configMap["client_id"] = providerConfig.Auth.ClientID
+			configMap["client_secret"] = providerConfig.Auth.ClientSecret
+			configMap["token_url"] = providerConfig.Auth.TokenURL
+		}
 
-		switch providerConfig.Type {
-		case "jira":
-			jiraProvider := jira.NewProvider(
-				providerConfig.BaseURL,
-				providerConfig.Auth.Username,
-				providerConfig.Auth.Password,
-			)
-
-			for _, tool := range jiraProvider.GetTools() {
-				manual.AddTool(tool)
-			}
-
-		case "confluence", "wiki":
-			wikiProvider := wiki.NewProvider(
-				providerConfig.BaseURL,
-				providerConfig.Auth.APIKey,
-			)
-
-			for _, tool := range wikiProvider.GetTools() {
-				manual.AddTool(tool)
-			}
-
-		case "gitlab":
-			gitlabProvider := gitlab.NewProvider(
-				providerConfig.BaseURL,
-				providerConfig.Auth.Token,
-			)
-
-			for _, tool := range gitlabProvider.GetTools() {
-				manual.AddTool(tool)
-			}
-
-		default:
-			log.Printf("Unknown provider type: %s", providerConfig.Type)
+		// Create provider
+		if err := registry.CreateProvider(providerConfig.Name, providerConfig.Type, configMap); err != nil {
+			log.Printf("Failed to create provider %s: %v", providerConfig.Name, err)
+			// Continue with other providers
+		} else {
+			log.Printf("Created provider: %s (%s)", providerConfig.Name, providerConfig.Type)
 		}
 	}
 
-	log.Printf("Loaded %d tools", len(manual.Tools))
+	return nil
+}
+
+func handleUTCPDiscovery(c *gin.Context) {
+	manual := utcp.NewManual()
+
+	// Get all tools from enabled providers
+	tools := registry.GetAllTools()
+	for _, tool := range tools {
+		manual.AddTool(tool)
+	}
+
+	log.Printf("Serving %d tools from %d enabled providers", len(tools), len(registry.GetEnabledProviders()))
 
 	// Return the UTCP manual
 	c.JSON(http.StatusOK, manual)

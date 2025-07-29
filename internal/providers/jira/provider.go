@@ -3,12 +3,13 @@ package jira
 import (
 	"fmt"
 
+	"github.com/rh-utcp/rh-utcp/internal/providers"
 	"github.com/rh-utcp/rh-utcp/pkg/utcp"
 )
 
 // Provider represents a Jira provider
 type Provider struct {
-	BaseURL  string
+	providers.BaseProvider
 	Username string
 	Password string
 }
@@ -16,20 +17,47 @@ type Provider struct {
 // NewProvider creates a new Jira provider
 func NewProvider(baseURL, username, password string) *Provider {
 	return &Provider{
-		BaseURL:  baseURL,
+		BaseProvider: providers.BaseProvider{
+			Type:    "jira",
+			Enabled: true,
+			BaseURL: baseURL,
+		},
 		Username: username,
 		Password: password,
 	}
+}
+
+// NewProviderFromConfig creates a new Jira provider from configuration
+func NewProviderFromConfig(config map[string]interface{}) (providers.Provider, error) {
+	name, _ := config["name"].(string)
+	baseURL, _ := config["base_url"].(string)
+	username, _ := config["username"].(string)
+	password, _ := config["password"].(string)
+	enabled, _ := config["enabled"].(bool)
+
+	if baseURL == "" {
+		return nil, fmt.Errorf("base_url is required")
+	}
+
+	if username == "" || password == "" {
+		return nil, fmt.Errorf("username and password are required for Jira provider")
+	}
+
+	provider := NewProvider(baseURL, username, password)
+	provider.Name = name
+	provider.Enabled = enabled
+
+	return provider, nil
 }
 
 // GetTools returns all available Jira tools
 func (p *Provider) GetTools() []utcp.Tool {
 	tools := []utcp.Tool{}
 
-	// Search Issues tool
+	// Search issues tool
 	tools = append(tools, utcp.Tool{
 		Name:        "jira_search_issues",
-		Description: "Search Jira issues using JQL (Jira Query Language)",
+		Description: "Search for Jira issues using JQL (Jira Query Language)",
 		Inputs: utcp.Schema{
 			Type: "object",
 			Properties: map[string]utcp.Property{
@@ -38,18 +66,17 @@ func (p *Provider) GetTools() []utcp.Tool {
 					Description: "JQL query string (e.g., 'project = PROJ AND status = Open')",
 				},
 				"fields": {
-					Type:        "string",
-					Description: "Comma-separated fields to return (default: key,summary,status,assignee)",
-					Default:     "key,summary,status,assignee,priority,created,updated",
+					Type:        "array",
+					Description: "Fields to return (e.g., ['summary', 'status', 'assignee'])",
 				},
 				"maxResults": {
 					Type:        "integer",
-					Description: "Maximum number of results (default: 50)",
+					Description: "Maximum number of results to return",
 					Default:     50,
 				},
 				"startAt": {
 					Type:        "integer",
-					Description: "Starting index for pagination (default: 0)",
+					Description: "Starting index for pagination",
 					Default:     0,
 				},
 			},
@@ -57,18 +84,18 @@ func (p *Provider) GetTools() []utcp.Tool {
 		},
 		Outputs: utcp.Schema{
 			Type:        "object",
-			Description: "Search results with issues and pagination info",
+			Description: "Search results containing issues and metadata",
 		},
 		Tags: []string{"jira", "search", "issues"},
 		ToolProvider: utcp.HTTPProvider(
 			"jira_search",
 			fmt.Sprintf("%s/rest/api/2/search", p.BaseURL),
-			"POST",
+			"GET",
 			utcp.BasicAuth("JIRA_USERNAME", "JIRA_PASSWORD"),
 		),
 	})
 
-	// Get Issue tool
+	// Get issue tool
 	tools = append(tools, utcp.Tool{
 		Name:        "jira_get_issue",
 		Description: "Get detailed information about a specific Jira issue",
@@ -77,17 +104,15 @@ func (p *Provider) GetTools() []utcp.Tool {
 			Properties: map[string]utcp.Property{
 				"issueKey": {
 					Type:        "string",
-					Description: "The issue key (e.g., 'PROJ-123')",
+					Description: "Issue key (e.g., 'PROJ-123')",
 				},
 				"fields": {
-					Type:        "string",
-					Description: "Comma-separated fields to return (default: all fields)",
-					Default:     "*all",
+					Type:        "array",
+					Description: "Specific fields to return",
 				},
 				"expand": {
-					Type:        "string",
-					Description: "Comma-separated list of fields to expand",
-					Default:     "renderedFields,names,schema,transitions,operations,editmeta,changelog",
+					Type:        "array",
+					Description: "Additional data to expand (e.g., ['changelog', 'renderedFields'])",
 				},
 			},
 			Required: []string{"issueKey"},
@@ -96,7 +121,7 @@ func (p *Provider) GetTools() []utcp.Tool {
 			Type:        "object",
 			Description: "Complete issue details",
 		},
-		Tags: []string{"jira", "issue", "details"},
+		Tags: []string{"jira", "issue", "get"},
 		ToolProvider: utcp.HTTPProvider(
 			"jira_get_issue",
 			fmt.Sprintf("%s/rest/api/2/issue/${issueKey}", p.BaseURL),
@@ -105,7 +130,7 @@ func (p *Provider) GetTools() []utcp.Tool {
 		),
 	})
 
-	// Create Issue tool
+	// Create issue tool
 	tools = append(tools, utcp.Tool{
 		Name:        "jira_create_issue",
 		Description: "Create a new Jira issue",
@@ -113,8 +138,8 @@ func (p *Provider) GetTools() []utcp.Tool {
 			Type: "object",
 			Properties: map[string]utcp.Property{
 				"project": {
-					Type:        "string",
-					Description: "Project key where the issue will be created",
+					Type:        "object",
+					Description: "Project key or ID",
 				},
 				"summary": {
 					Type:        "string",
@@ -125,30 +150,29 @@ func (p *Provider) GetTools() []utcp.Tool {
 					Description: "Issue description",
 				},
 				"issuetype": {
-					Type:        "string",
-					Description: "Issue type (e.g., 'Bug', 'Task', 'Story')",
+					Type:        "object",
+					Description: "Issue type (e.g., {'name': 'Bug'})",
 				},
 				"priority": {
-					Type:        "string",
-					Description: "Priority (e.g., 'High', 'Medium', 'Low')",
-					Default:     "Medium",
+					Type:        "object",
+					Description: "Priority (e.g., {'name': 'High'})",
 				},
 				"assignee": {
-					Type:        "string",
-					Description: "Username of the assignee",
+					Type:        "object",
+					Description: "Assignee account ID or name",
 				},
 				"labels": {
 					Type:        "array",
-					Description: "Array of labels to add to the issue",
+					Description: "Labels to add to the issue",
 				},
 			},
 			Required: []string{"project", "summary", "issuetype"},
 		},
 		Outputs: utcp.Schema{
 			Type:        "object",
-			Description: "Created issue details including key",
+			Description: "Created issue details including key and ID",
 		},
-		Tags: []string{"jira", "create", "issue"},
+		Tags: []string{"jira", "issue", "create"},
 		ToolProvider: utcp.HTTPProvider(
 			"jira_create_issue",
 			fmt.Sprintf("%s/rest/api/2/issue", p.BaseURL),
@@ -157,7 +181,7 @@ func (p *Provider) GetTools() []utcp.Tool {
 		),
 	})
 
-	// Update Issue tool
+	// Update issue tool
 	tools = append(tools, utcp.Tool{
 		Name:        "jira_update_issue",
 		Description: "Update an existing Jira issue",
@@ -166,20 +190,24 @@ func (p *Provider) GetTools() []utcp.Tool {
 			Properties: map[string]utcp.Property{
 				"issueKey": {
 					Type:        "string",
-					Description: "The issue key to update (e.g., 'PROJ-123')",
+					Description: "Issue key to update",
 				},
 				"fields": {
 					Type:        "object",
-					Description: "Fields to update (e.g., {\"summary\": \"New summary\", \"description\": \"New description\"})",
+					Description: "Fields to update",
+				},
+				"update": {
+					Type:        "object",
+					Description: "Update operations (add, set, remove)",
 				},
 			},
-			Required: []string{"issueKey", "fields"},
+			Required: []string{"issueKey"},
 		},
 		Outputs: utcp.Schema{
 			Type:        "object",
 			Description: "Update confirmation",
 		},
-		Tags: []string{"jira", "update", "issue"},
+		Tags: []string{"jira", "issue", "update"},
 		ToolProvider: utcp.HTTPProvider(
 			"jira_update_issue",
 			fmt.Sprintf("%s/rest/api/2/issue/${issueKey}", p.BaseURL),
@@ -188,7 +216,7 @@ func (p *Provider) GetTools() []utcp.Tool {
 		),
 	})
 
-	// Get Projects tool
+	// Get projects tool
 	tools = append(tools, utcp.Tool{
 		Name:        "jira_get_projects",
 		Description: "Get list of all Jira projects",
@@ -196,15 +224,18 @@ func (p *Provider) GetTools() []utcp.Tool {
 			Type: "object",
 			Properties: map[string]utcp.Property{
 				"expand": {
-					Type:        "string",
-					Description: "Comma-separated list of fields to expand",
-					Default:     "description,lead,url,projectKeys",
+					Type:        "array",
+					Description: "Additional project data to retrieve",
+				},
+				"recent": {
+					Type:        "integer",
+					Description: "Return only recent projects (number)",
 				},
 			},
 		},
 		Outputs: utcp.Schema{
 			Type:        "array",
-			Description: "List of projects",
+			Description: "List of projects with details",
 		},
 		Tags: []string{"jira", "projects", "list"},
 		ToolProvider: utcp.HTTPProvider(
@@ -215,7 +246,7 @@ func (p *Provider) GetTools() []utcp.Tool {
 		),
 	})
 
-	// Add Comment tool
+	// Add comment tool
 	tools = append(tools, utcp.Tool{
 		Name:        "jira_add_comment",
 		Description: "Add a comment to a Jira issue",
@@ -224,11 +255,15 @@ func (p *Provider) GetTools() []utcp.Tool {
 			Properties: map[string]utcp.Property{
 				"issueKey": {
 					Type:        "string",
-					Description: "The issue key (e.g., 'PROJ-123')",
+					Description: "Issue key to comment on",
 				},
 				"body": {
 					Type:        "string",
-					Description: "Comment text",
+					Description: "Comment text (supports Jira wiki markup)",
+				},
+				"visibility": {
+					Type:        "object",
+					Description: "Comment visibility restrictions",
 				},
 			},
 			Required: []string{"issueKey", "body"},
@@ -246,38 +281,43 @@ func (p *Provider) GetTools() []utcp.Tool {
 		),
 	})
 
-	// Get User Issues tool
+	// Get user issues tool
 	tools = append(tools, utcp.Tool{
 		Name:        "jira_get_user_issues",
-		Description: "Get issues assigned to a specific user",
+		Description: "Get issues assigned to or reported by a specific user",
 		Inputs: utcp.Schema{
 			Type: "object",
 			Properties: map[string]utcp.Property{
 				"username": {
 					Type:        "string",
-					Description: "Username to search for (use 'currentUser()' for current user)",
-					Default:     "currentUser()",
+					Description: "Username or account ID (use 'currentUser()' for current user)",
+				},
+				"filter": {
+					Type:        "string",
+					Description: "Filter type: 'assignee', 'reporter', or 'both'",
+					Default:     "assignee",
 				},
 				"status": {
-					Type:        "string",
-					Description: "Filter by status (e.g., 'Open', 'In Progress', 'Done')",
+					Type:        "array",
+					Description: "Status filters (e.g., ['Open', 'In Progress'])",
 				},
 				"maxResults": {
 					Type:        "integer",
-					Description: "Maximum number of results",
+					Description: "Maximum results to return",
 					Default:     50,
 				},
 			},
+			Required: []string{"username"},
 		},
 		Outputs: utcp.Schema{
 			Type:        "object",
-			Description: "Search results with user's issues",
+			Description: "Issues assigned to or reported by the user",
 		},
 		Tags: []string{"jira", "user", "issues"},
 		ToolProvider: utcp.HTTPProvider(
 			"jira_user_issues",
 			fmt.Sprintf("%s/rest/api/2/search", p.BaseURL),
-			"POST",
+			"GET",
 			utcp.BasicAuth("JIRA_USERNAME", "JIRA_PASSWORD"),
 		),
 	})
